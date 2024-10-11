@@ -201,8 +201,6 @@ def fetch_job_and_email(job_id):
     if html_content:
         job_details = parse_job_posting_details(job_id, html_content)  # Pass job_id to the function
         job_details['email'] = make_post_request(job_id)  # Retrieve email address
-        job_details['id'] = job_id
-        job_details['url'] = url
         print(job_details)
         return job_details
     else:
