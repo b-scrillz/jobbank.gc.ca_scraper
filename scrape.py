@@ -275,6 +275,16 @@ def get_live_recovery_email(email):
         return None
 
 def main():
+    # Read existing job IDs from CSV file
+    existing_job_ids = set()
+    try:
+        with open('job_data.csv', 'r', newline='', encoding='utf-8') as input_file:
+            csv_reader = csv.DictReader(input_file)
+            existing_job_ids = {row['job_id'] for row in csv_reader}
+            print(f"Existing job IDs loaded: {existing_job_ids}")  # Debugging line
+    except FileNotFoundError:
+        print("No existing job data file found. Will fetch all new job IDs.")
+    
     first_page_html = fetch_html(search_url_template.format(str(1)))
     if first_page_html:
         total_postings = extract_total_postings(first_page_html)
@@ -293,9 +303,13 @@ def main():
                     search_page_html = fetch_html(search_url_template.format(page_number))
                     job_ids = extract_job_ids(search_page_html)
                     print(f"Fetched job IDs: {job_ids}")  # Debugging line
-                    for job_id in job_ids:
+                    
+                    # Filter out existing job IDs
+                    new_job_ids = [job_id for job_id in job_ids if job_id not in existing_job_ids]
+                    print(f"New job IDs to process: {new_job_ids}")  # Debugging line
+                    
+                    for job_id in new_job_ids:
                         futures.append(executor.submit(fetch_job_and_email, job_id))
-                    #    fetch_job_and_email(job_id)
 
                 for future in as_completed(futures):
                     job_details = future.result()
