@@ -5,6 +5,7 @@ import datetime
 import time
 import re
 import csv
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Base URL patterns
@@ -12,6 +13,8 @@ base_url = "https://www.jobbank.gc.ca/jobsearch/jobposting/"
 search_url_template = "https://www.jobbank.gc.ca/jobsearch/jobsearch?fage=30&page={}&sort=M&fprov=ON"  # Template for search URL
 post_url = "https://www.jobbank.gc.ca/jobsearch/jobpostingtfw/"
 results_per_page = 25  # Number of results per page
+
+live_domains = ("outlook.com", "hotmail.com", "live.com", "live.ca")
 
 # Define the headers with the desired User-Agent
 headers = {
@@ -82,17 +85,21 @@ def parse_job_posting_details(job_id, html_content):
         formatted_date = posted_date
     
     # Extract Employer Name and Details
-    employer_name_tag = soup.find('span', property='hiringOrganization').find('a')
+    employer_name_tag = soup.find('span', property='hiringOrganization')
     if employer_name_tag:
         employer_name = employer_name_tag.get_text(strip=True)
-        employer_link = employer_name_tag['href']
+        find_employer_link = employer_name_tag.find('a')
+        if find_employer_link:
+            employer_link = find_employer_link["href"]
+        else:
+            employer_link = ""
     else:
         employer_name = "Not available"
         employer_link = ""
 
     # Find the <ul> with the desired class
     job_posting_brief = soup.find('ul', class_="job-posting-brief colcount-lg-2")
-    location, region, workplace_info, salary, hours, employment_type, commitments, vacancies, source = ("",) * 9
+    location, region, salary, hours, employment_type, source = ("",) * 6
 
     if job_posting_brief:
         # Extract the list items
@@ -104,17 +111,11 @@ def parse_job_posting_details(job_id, html_content):
             if "Location" in li.get_text():
                 location = li.find('span', property="addressLocality").get_text(strip=True)
                 region = li.find('span', property="addressRegion").get_text(strip=True)
-            elif "Workplace information" in li.get_text():
-                workplace_info = li.find('span', class_="wb-inv").find_next_sibling(text=True).strip()
             elif "Salary" in li.get_text():
                 salary = li.find('span', property="minValue").get_text(strip=True)
                 hours = li.find('span', property="workHours").get_text(strip=True)
             elif "Terms of employment" in li.get_text():
                 employment_type = li.find('span', property="employmentType").get_text(strip=True)
-            elif "specialCommitments" in li.get_text():
-                commitments = li.find('span', property="specialCommitments").get_text(strip=True)
-            elif "vacancies" in li.get_text():
-                vacancies = li.find('span').find_next(text=True).strip()
             elif "Source" in li.get_text():
                 source = li.get_text(strip=True).replace("Source", "").strip()
 
@@ -133,12 +134,9 @@ def parse_job_posting_details(job_id, html_content):
         "employer_link": employer_link,
         "location": location,
         "region": region,
-        "workplace_info": workplace_info,
         "salary": salary,
         "hours": hours,
         "employment_type": employment_type,
-        "commitments": commitments,
-        "vacancies": vacancies,
         "source": source,
         "lmia": lmia
     }
@@ -201,10 +199,73 @@ def fetch_job_and_email(job_id):
     if html_content:
         job_details = parse_job_posting_details(job_id, html_content)  # Pass job_id to the function
         job_details['email'] = make_post_request(job_id)  # Retrieve email address
+        job_details['live_email_recovery'] = ""
+        if any(domain in job_details['email'] for domain in live_domains):
+            job_details['live_email_recovery'] = get_live_recovery_email(job_details['email'])
         print(job_details)
         return job_details
     else:
         print("Couldn't extract job details from ID",job_id)
+        return None
+
+def get_live_recovery_email(email):
+    # Define the URL and query parameters
+    recovery_email = None
+    url = "https://account.live.com/ResetPassword.aspx"
+    params = {
+        "mn": email
+    }
+    # Define the headers
+    headers = {
+        "Sec-Ch-Ua": '"Chromium";v="129", "Not=A?Brand";v="8"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Accept-Language": "en-US,en;q=0.9",
+        "Upgrade-Insecure-Requests": "1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.71 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Sec-Fetch-Site": "same-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document",
+        "Referer": "https://login.live.com/",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Priority": "u=0, i"
+    }
+
+    # Send the GET request
+    response = requests.get(url, headers=headers, params=params)
+    response_text = response.text
+    soup = BeautifulSoup(response_text, 'html.parser')
+
+    # Find all <script> tags
+    scripts = soup.find_all('script')
+
+    # Extract the text within each <script> tag
+    for script in scripts:
+        script_text = script.get_text()
+        if "//<![CDATA[" in script_text and "var ServerData=" in script_text:
+            # Remove the beginning and end parts
+            json_content = script_text.strip()
+            json_content = json_content.replace('//<![CDATA[', '')
+            json_content = json_content.replace('//]]>', '')
+            json_content = json_content.replace('var ServerData=','')
+            json_content = json_content.replace(';window.$Do&&window.$Do.register("ServerData",0,true)','')
+            json_content = json_content.strip()
+            json_content = json_content[:-1]
+            # Parse it as a JSON object
+            data_dict = json.loads(json_content)
+            for proof in data_dict.get("oProofList", []):
+                if proof.get("type") == "Email":
+                    recovery_email = proof.get("name")
+            if recovery_email is not None:
+                print("Recovery email for",email,"is",recovery_email)
+                return recovery_email
+            else:
+                print("No recovery email for",email)
+                return None
+    if recovery_email is None:
+        print("No recovery email for",email)
         return None
 
 def main():
@@ -226,9 +287,9 @@ def main():
                     search_page_html = fetch_html(search_url_template.format(page_number))
                     job_ids = extract_job_ids(search_page_html)
                     print(f"Fetched job IDs: {job_ids}")  # Debugging line
-
                     for job_id in job_ids:
                         futures.append(executor.submit(fetch_job_and_email, job_id))
+                    #    fetch_job_and_email(job_id)
 
                 for future in as_completed(futures):
                     job_details = future.result()
@@ -238,7 +299,6 @@ def main():
                             keys = job_details.keys()
                             dict_writer = csv.DictWriter(output_file, fieldnames=keys)
                             dict_writer.writeheader()
-
                         dict_writer.writerow(job_details)
 
             print("Job data updated in job_data.csv.")
