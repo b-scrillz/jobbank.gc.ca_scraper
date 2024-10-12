@@ -301,15 +301,16 @@ def main():
                 for page_number in range(1, total_pages + 1):
                     print(f"Fetching page {page_number}...")
                     search_page_html = fetch_html(search_url_template.format(page_number))
-                    job_ids = extract_job_ids(search_page_html)
-                    print(f"Fetched job IDs: {job_ids}")  # Debugging line
+                    if search_page_html is not None:
+                        job_ids = extract_job_ids(search_page_html)
+                        print(f"Fetched job IDs: {job_ids}")  # Debugging line
                     
-                    # Filter out existing job IDs
-                    new_job_ids = [job_id for job_id in job_ids if job_id not in existing_job_ids]
-                    print(f"New job IDs to process: {new_job_ids}")  # Debugging line
-                    
-                    for job_id in new_job_ids:
-                        futures.append(executor.submit(fetch_job_and_email, job_id))
+                        # Filter out existing job IDs
+                        new_job_ids = [job_id for job_id in job_ids if job_id not in existing_job_ids]
+                        print(f"New job IDs to process: {new_job_ids}")  # Debugging line
+                        
+                        for job_id in new_job_ids:
+                            futures.append(executor.submit(fetch_job_and_email, job_id))
 
                 for future in as_completed(futures):
                     job_details = future.result()
