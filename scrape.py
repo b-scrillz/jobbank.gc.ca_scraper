@@ -71,12 +71,15 @@ def extract_total_postings(search_page_html):
 
 def parse_job_posting_details(job_id, html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
-    
+
     # Extract Job Title
-    job_title = soup.find('h1', class_='title').find('span', property='title').get_text(strip=True)
-    
+    job_title_tag = soup.find('h1', class_='title')
+    job_title = job_title_tag.find('span', property='title').get_text(strip=True) if job_title_tag else "Not available"
+
     # Extract Posted Date
-    posted_date = soup.find('span', property='datePosted').get_text(strip=True).replace("Posted on", "").strip()
+    posted_date_tag = soup.find('span', property='datePosted')
+    posted_date = posted_date_tag.get_text(strip=True).replace("Posted on", "").strip() if posted_date_tag else "Not available"
+
     # Convert the date to a datetime object
     try:
         date_obj = datetime.datetime.strptime(posted_date, "%B %d, %Y")
@@ -89,10 +92,7 @@ def parse_job_posting_details(job_id, html_content):
     if employer_name_tag:
         employer_name = employer_name_tag.get_text(strip=True)
         find_employer_link = employer_name_tag.find('a')
-        if find_employer_link:
-            employer_link = find_employer_link["href"]
-        else:
-            employer_link = ""
+        employer_link = find_employer_link["href"] if find_employer_link else ""
     else:
         employer_name = "Not available"
         employer_link = ""
@@ -107,17 +107,22 @@ def parse_job_posting_details(job_id, html_content):
         
         # Parse and format the details
         for li in list_items:
-            # Check for specific details based on text patterns
-            if "Location" in li.get_text():
-                location = li.find('span', property="addressLocality").get_text(strip=True)
-                region = li.find('span', property="addressRegion").get_text(strip=True)
-            elif "Salary" in li.get_text():
-                salary = li.find('span', property="minValue").get_text(strip=True)
-                hours = li.find('span', property="workHours").get_text(strip=True)
-            elif "Terms of employment" in li.get_text():
-                employment_type = li.find('span', property="employmentType").get_text(strip=True)
-            elif "Source" in li.get_text():
-                source = li.get_text(strip=True).replace("Source", "").strip()
+            li_text = li.get_text(strip=True)
+            if "Location" in li_text:
+                location_tag = li.find('span', property="addressLocality")
+                region_tag = li.find('span', property="addressRegion")
+                location = location_tag.get_text(strip=True) if location_tag else ""
+                region = region_tag.get_text(strip=True) if region_tag else ""
+            elif "Salary" in li_text:
+                salary_tag = li.find('span', property="minValue")
+                hours_tag = li.find('span', property="workHours")
+                salary = salary_tag.get_text(strip=True) if salary_tag else ""
+                hours = hours_tag.get_text(strip=True) if hours_tag else ""
+            elif "Terms of employment" in li_text:
+                employment_type_tag = li.find('span', property="employmentType")
+                employment_type = employment_type_tag.get_text(strip=True) if employment_type_tag else ""
+            elif "Source" in li_text:
+                source = li_text.replace("Source", "").strip()
 
     lmia_div = soup.find('div', class_="disclaimer tfw col-md-12")
     lmia = "true" if lmia_div else "false"
@@ -140,6 +145,7 @@ def parse_job_posting_details(job_id, html_content):
         "source": source,
         "lmia": lmia
     }
+
 
 # Function to make a POST request after fetching job posting details
 def make_post_request(job_id, retries=3, backoff_factor=2):
